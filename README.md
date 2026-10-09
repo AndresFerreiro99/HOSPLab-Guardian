@@ -46,3 +46,13 @@ No quiero crear un sistema completo de resolución de incidencias, ya que sería
 
 Andrés Ferreiro Martínez  
 TFG - Administración de Sistemas Informáticos en Red (ASIR)
+
+
+## Estado actual del proyecto (09 / 10 / 2026)
+
+- Servidor Windows Server (SRV-AD01) con Active Directory y DNS operativos
+- Cliente Windows 11 (W11-CL01) configurado en la red interna HospLab
+- Comunicación verificada entre servidor y cliente (ping y resolución DNS correctas)
+- Windows 11 unido al dominio hosplab.local
+- Inicio de sesión en el dominio verificado con whoami = hosplab\administrador
+- Evidencia subida en docs/capturas
