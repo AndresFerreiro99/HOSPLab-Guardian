@@ -1,3 +1,4 @@
+
 # HOSPLab Guardian
 
 Este repositorio lo voy a utilizar para ir guardando y documentando mi proyecto de TFG de ASIR.
@@ -98,7 +99,7 @@ He añadido a cada usuario al grupo correspondiente a su departamento.
 
 Además, he conservado los grupos GG_IT y GG_Personal_Sanitario que había creado anteriormente para las primeras pruebas con los usuarios Prueba IT y Prueba Sanitario.
 
-De momento los grupos están configurados, pero todavía tengo pendiente crear las carpetas compartidas y probar los permisos de acceso.
+Estos grupos los he utilizado después para organizar los permisos de las carpetas compartidas.
 
 ### Reorganización de Active Directory
 
@@ -149,9 +150,13 @@ Durante esta prueba apareció un problema, ya que el DNS devolvía dos direccion
 - 10.10.10.10, que es la dirección de la red interna.
 - 10.0.2.15, que corresponde al adaptador NAT de VirtualBox.
 
-He revisado los adaptadores de red y eliminado algunos registros DNS que no deberían aparecer. También he desactivado el registro automático del adaptador NAT.
+He revisado los adaptadores de red y eliminado los registros DNS que no deberían aparecer. También he desactivado el registro automático del adaptador NAT.
 
-Aun así, Guardian sigue detectando la segunda dirección, por lo que tengo pendiente terminar de solucionar este problema.
+Después comprobé que el problema continuaba y revisé las interfaces del servicio DNS de Windows Server.
+
+Configuré el servidor DNS para que escuchase únicamente en la dirección IP interna 10.10.10.10.
+
+Finalmente volví a ejecutar Guardian desde Windows 11 y comprobé que la resolución DNS ya funcionaba correctamente.
 
 Después añadí una tercera comprobación para revisar los servicios DNS, NTDS y Netlogon del servidor.
 
@@ -175,21 +180,157 @@ El resultado fue que Guardian detectó que no había conexión con el servidor, 
 
 Después volví a encender el servidor y ejecuté otra vez el script.
 
-Esta vez Guardian volvió a detectar conexión con el servidor y comprobó que los servicios DNS y NTDS estaban funcionando. La alerta del DNS seguía apareciendo por la dirección 10.0.2.15.
+Esta vez Guardian volvió a detectar conexión con el servidor y comprobó que los servicios estaban funcionando.
+
+Además, terminé de corregir el problema del DNS y conseguí que todas las comprobaciones de Guardian apareciesen correctamente.
 
 Con esta prueba he podido comprobar que Guardian sirve para detectar una caída del servidor y verificar que vuelve a estar disponible después de recuperarlo.
 
 He guardado capturas de las pruebas para poder utilizarlas en la documentación del proyecto.
 
+### Configuración de carpetas compartidas
+
+Después de configurar los usuarios y grupos, he empezado a preparar las carpetas compartidas del hospital.
+
+Al principio creé una carpeta para Admisión y la compartí directamente en la red.
+
+Sin embargo, después decidí cambiar la estructura porque me parecía más útil tener una única carpeta compartida principal, en lugar de crear un acceso de red diferente para cada departamento.
+
+Por ejemplo, un trabajador podría necesitar acceso a las carpetas de Admisión y Hospitalización. En ese caso, prefiero que tenga un único acceso de red donde aparezcan las carpetas que puede utilizar.
+
+Por eso creé la carpeta `C:\Hospital` en SRV-AD01 y dentro añadí las carpetas de los cinco departamentos.
+
+La estructura es la siguiente:
+
+```text
+C:\Hospital
+├── Admision
+├── Enfermeria
+├── Informatica
+├── Laboratorio
+└── Urgencias
+```
+
+Después compartí la carpeta principal con el nombre `Hospital`.
+
+Desde Windows 11 se puede acceder utilizando la ruta:
+
+`\\SRV-AD01\Hospital`
+
+Así los usuarios solamente necesitan un acceso directo o una unidad de red para entrar a los recursos compartidos del hospital.
+
+### Configuración de permisos
+
+Una vez creadas las carpetas, empecé a configurar los permisos para que cada departamento tuviese acceso únicamente a sus archivos.
+
+Para hacerlo, utilicé los grupos de seguridad que había creado anteriormente en Active Directory.
+
+En cada carpeta he configurado los permisos NTFS desde la pestaña Seguridad de Windows Server.
+
+He quitado los permisos generales heredados del grupo Usuarios para evitar que cualquier trabajador del dominio pueda acceder a las carpetas de otros departamentos.
+
+Después he añadido el grupo correspondiente a cada carpeta con permiso de Modificar.
+
+La configuración es la siguiente:
+
+| Carpeta | Grupo con acceso | Permiso |
+|---|---|---|
+| Admision | GG_Admision | Modificar |
+| Enfermeria | GG_Enfermeria | Modificar |
+| Urgencias | GG_Urgencias | Modificar |
+| Laboratorio | GG_Laboratorio | Modificar |
+| Informatica | GG_Informatica | Modificar |
+
+También he conservado los permisos necesarios de SYSTEM y Administradores para no perder la administración de las carpetas.
+
+De esta manera, si un trabajador necesita acceso a otra carpeta, no tendría que modificar sus permisos individualmente. Bastaría con añadirlo al grupo correspondiente desde Active Directory.
+
+### Ocultar carpetas sin permisos mediante ABE
+
+Además de configurar los permisos, quería que los trabajadores no pudiesen ver las carpetas de los departamentos a los que no tienen acceso.
+
+Por ejemplo, si un usuario trabaja en Admisión, no tiene por qué saber que existen otras carpetas con documentación de diferentes servicios.
+
+Para conseguirlo he activado la opción de **enumeración basada en el acceso (ABE)** en el recurso compartido Hospital.
+
+Esta función permite que Windows oculte las carpetas para las que un usuario no tiene permisos.
+
+Durante las primeras pruebas comprobé que el usuario de Admisión podía ver todas las carpetas.
+
+El problema estaba en que las carpetas todavía tenían permisos generales heredados del grupo Usuarios.
+
+Después de quitar esos permisos en las opciones avanzadas de seguridad, las carpetas dejaron de aparecer automáticamente.
+
+Finalmente comprobé que, al iniciar sesión en Windows 11 con el usuario `lgarciam`, únicamente aparecía la carpeta Admision.
+
+Esta configuración me parece importante porque no solo evita que los usuarios entren en carpetas sin autorización, sino que también impide que puedan verlas desde el recurso compartido.
+
+Hay que tener en cuenta que ABE sirve para ocultar las carpetas, mientras que los permisos NTFS son los que realmente controlan el acceso a los archivos.
+
+### Administración de carpetas desde Windows 11
+
+Después de terminar los permisos por departamentos, quise añadir otra funcionalidad.
+
+La idea era que una persona del departamento de Informática pudiese administrar las carpetas compartidas sin tener que entrar directamente en Windows Server.
+
+Por ejemplo, si se crea un departamento nuevo en el hospital, el administrador de ficheros debería poder crear su carpeta y configurar los permisos desde su propio ordenador.
+
+Para hacerlo creé un grupo de seguridad llamado `GG_Admin_Ficheros`.
+
+He separado este grupo de `GG_Informatica` porque no todos los trabajadores de Informática necesitan administrar las carpetas de los demás departamentos.
+
+Después creé mi usuario de prueba `andresferreiro` y lo añadí a `GG_Admin_Ficheros`.
+
+Este grupo tiene Control total sobre la carpeta principal Hospital y sobre las carpetas de los departamentos.
+
+También tuve que configurar los permisos del recurso compartido, porque al principio Windows 11 no me permitía crear carpetas aunque el grupo tuviese Control total en los permisos NTFS.
+
+El problema estaba en que los permisos de uso compartido todavía no permitían realizar esa operación.
+
+Finalmente dejé los permisos del recurso compartido de esta manera:
+
+- Todos: Lectura.
+- GG_Admin_Ficheros: Control total.
+
+Con esta configuración los usuarios normales pueden acceder al recurso compartido, pero sus permisos sobre las subcarpetas siguen dependiendo de los grupos de Active Directory.
+
+En cambio, los miembros de GG_Admin_Ficheros pueden administrar los recursos compartidos.
+
+### Pruebas de administración de ficheros
+
+Para comprobar que todo funcionaba, inicié sesión en W11-CL01 con mi usuario `andresferreiro`.
+
+Primero comprobé que podía ver las cinco carpetas del hospital, algo que los usuarios de los departamentos no pueden hacer si no tienen los permisos correspondientes.
+
+Después ejecuté el comando `whoami /groups` y confirmé que mi usuario pertenecía al grupo `GG_Admin_Ficheros`.
+
+A continuación intenté crear una carpeta nueva desde Windows 11 dentro del recurso compartido Hospital.
+
+Al principio apareció un mensaje de acceso denegado.
+
+Después de revisar los permisos del recurso compartido y dar Control total a GG_Admin_Ficheros, conseguí crear la carpeta correctamente.
+
+Para continuar con la prueba, creé una carpeta llamada `Prueba_Admin`.
+
+Desde el propio Windows 11 entré en sus opciones avanzadas de seguridad y añadí el grupo `GG_Admision` con permiso de Modificar.
+
+Windows me permitió guardar los cambios sin solicitar credenciales de administrador del dominio.
+
+Por último, eliminé la carpeta Prueba_Admin para dejar el entorno como estaba.
+
+Con estas pruebas he comprobado que puedo crear carpetas, modificar sus permisos y eliminarlas desde el equipo cliente, sin tener que iniciar sesión directamente en el servidor.
+
+Además, mi usuario no necesita pertenecer al grupo Administradores del dominio, porque los permisos se conceden mediante un grupo específico para administrar ficheros.
+
+Esto permite separar las tareas de administración del servidor de las tareas de gestión de recursos compartidos.
+
 ### Próximos pasos
 
 Lo siguiente que quiero hacer es:
 
-- Terminar de solucionar el problema de los registros DNS.
-- Crear carpetas compartidas para los departamentos.
-- Configurar permisos utilizando los grupos de seguridad.
-- Añadir nuevas comprobaciones a Guardian.
-- Preparar más incidencias simuladas.
+- Añadir a Guardian una comprobación de las carpetas compartidas.
+- Preparar una segunda incidencia simulada relacionada con los permisos o el acceso a los recursos compartidos.
 - Conseguir que Guardian genere informes de los resultados.
 - Montar Ubuntu Server e instalar Zabbix.
+- Integrar la monitorización de los equipos y servicios del hospital.
 - Continuar documentando los avances en GitHub y en la memoria del TFG.
