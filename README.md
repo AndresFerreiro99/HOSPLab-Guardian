@@ -162,14 +162,6 @@ Después añadí una tercera comprobación para revisar los servicios DNS, NTDS 
 
 Con estas tres pruebas terminé Guardian v1.1.
 
-Actualmente Guardian puede comprobar:
-
-- Si el servidor responde.
-- Si el DNS devuelve las direcciones esperadas.
-- Si los servicios principales del dominio están funcionando.
-
-El script está guardado en `scripts/Guardian.ps1`.
-
 ### Primera incidencia simulada
 
 Para comprobar si Guardian era capaz de detectar un problema real dentro del laboratorio, hice una primera simulación apagando SRV-AD01.
@@ -287,14 +279,7 @@ También tuve que configurar los permisos del recurso compartido, porque al prin
 
 El problema estaba en que los permisos de uso compartido todavía no permitían realizar esa operación.
 
-Finalmente dejé los permisos del recurso compartido de esta manera:
-
-- Todos: Lectura.
-- GG_Admin_Ficheros: Control total.
-
-Con esta configuración los usuarios normales pueden acceder al recurso compartido, pero sus permisos sobre las subcarpetas siguen dependiendo de los grupos de Active Directory.
-
-En cambio, los miembros de GG_Admin_Ficheros pueden administrar los recursos compartidos.
+Finalmente conseguí que el grupo GG_Admin_Ficheros tuviese Control total tanto en los permisos NTFS como en los del recurso compartido.
 
 ### Pruebas de administración de ficheros
 
@@ -324,13 +309,111 @@ Además, mi usuario no necesita pertenecer al grupo Administradores del dominio,
 
 Esto permite separar las tareas de administración del servidor de las tareas de gestión de recursos compartidos.
 
+### Segunda incidencia simulada: caída del recurso compartido
+
+Después de terminar la configuración de las carpetas compartidas, he continuado desarrollando Guardian para que también pueda comprobar si los recursos de red están disponibles.
+
+Hasta ahora Guardian comprobaba la conexión con el servidor, la resolución DNS y el estado de los servicios de Active Directory.
+
+En esta nueva versión, Guardian v1.2, he añadido una cuarta comprobación relacionada con las carpetas compartidas.
+
+La herramienta utiliza dos comandos de PowerShell:
+
+- Test-NetConnection: para comprobar si el puerto 445 del servidor está disponible.
+- Test-Path: para comprobar si el usuario puede acceder a la carpeta compartida del hospital.
+
+El puerto 445 es el que utiliza SMB para permitir el acceso a los archivos compartidos en Windows.
+
+La idea de esta comprobación es poder diferenciar entre una caída completa del servidor y un problema que afecte únicamente a una carpeta compartida.
+
+#### Prueba inicial
+
+Primero comprobé desde W11-CL01 que podía acceder correctamente a la ruta `\\SRV-AD01\Hospital`.
+
+Después verifiqué que el puerto 445 del servidor estaba disponible.
+
+Las dos pruebas funcionaron correctamente, así que añadí estas comprobaciones al script de Guardian.
+
+Al ejecutar Guardian v1.2, todas las comprobaciones aparecían en verde.
+
+#### Simulación de la incidencia
+
+Para simular el problema, decidí eliminar temporalmente el recurso compartido Hospital desde Windows Server.
+
+Antes de hacerlo comprobé que el recurso apuntaba a `C:\Hospital` y que tenía activada la enumeración basada en el acceso (ABE).
+
+Después utilicé el comando `Remove-SmbShare` para quitar el recurso compartido sin eliminar la carpeta ni modificar los permisos NTFS.
+
+De esta manera conseguí simular una situación en la que el servidor seguía encendido y funcionando, pero los trabajadores ya no podían acceder a la carpeta compartida del hospital.
+
+A continuación ejecuté Guardian desde W11-CL01.
+
+El resultado fue el siguiente:
+
+- La conexión con SRV-AD01 funcionaba correctamente.
+- El DNS resolvía correctamente el nombre del servidor.
+- Los servicios DNS, NTDS y Netlogon estaban en ejecución.
+- El puerto SMB 445 seguía disponible.
+- Guardian mostraba una alerta porque no podía acceder a `\\SRV-AD01\Hospital`.
+
+Con esto pude comprobar que Guardian era capaz de detectar un problema específico del recurso compartido sin confundirlo con una caída general del servidor.
+
+#### Recuperación del recurso compartido
+
+Después de guardar la evidencia, volví a crear el recurso Hospital mediante PowerShell.
+
+Configuré de nuevo su ruta, activé ABE y restauré los permisos de uso compartido.
+
+Al ejecutar Guardian otra vez, el recurso aparecía disponible y todas las comprobaciones volvieron a mostrarse en verde.
+
+También comprobé desde Windows Server que el recurso compartido tenía activada la opción AccessBased.
+
+#### Problema con los permisos de escritura
+
+Durante las comprobaciones posteriores me encontré con otro problema.
+
+Al iniciar sesión en W11-CL01 con el usuario de Admisión, podía ver únicamente su carpeta, pero Windows no me permitía crear archivos dentro de ella.
+
+Al principio pensé que podía ser un problema de los permisos NTFS, pero comprobé que el grupo GG_Admision tenía permiso de Modificar.
+
+Después revisé los permisos del recurso compartido principal y descubrí que, al restaurarlo, el grupo Todos había quedado configurado únicamente con permiso de Lectura.
+
+Como Windows combina los permisos del recurso compartido con los permisos NTFS y aplica los más restrictivos, el usuario podía acceder a la carpeta, pero no escribir en ella.
+
+Para solucionarlo cambié el permiso de Todos de Lectura a Cambiar, manteniendo Control total para GG_Admin_Ficheros.
+
+Esta configuración no permite que todos los trabajadores modifiquen las carpetas de los demás departamentos, porque los permisos NTFS siguen controlando el acceso a cada una.
+
+#### Comprobación final
+
+Después de corregir los permisos, volví a realizar las pruebas con el usuario lgarciam.
+
+Comprobé que:
+
+- Solo podía visualizar la carpeta Admision.
+- Podía entrar en ella correctamente.
+- Podía crear un documento de texto.
+- Podía modificarlo y guardar los cambios.
+- Podía eliminar el archivo de prueba.
+
+Con esto terminé de comprobar que tanto ABE como los permisos NTFS y los permisos del recurso compartido funcionaban correctamente.
+
+Esta prueba me ha servido para entender mejor la diferencia entre los permisos de uso compartido y los permisos NTFS.
+
+También he comprobado que Guardian puede ayudar a localizar una incidencia cuando el servidor sigue funcionando, pero un recurso concreto deja de estar disponible.
+
+He guardado las capturas del funcionamiento normal, la incidencia y la recuperación en `docs/capturas`.
+
+El código actualizado de Guardian v1.2 se encuentra en `scripts/Guardian.ps1`.
+
 ### Próximos pasos
 
 Lo siguiente que quiero hacer es:
 
-- Añadir a Guardian una comprobación de las carpetas compartidas.
-- Preparar una segunda incidencia simulada relacionada con los permisos o el acceso a los recursos compartidos.
-- Conseguir que Guardian genere informes de los resultados.
+- Mejorar Guardian para identificar mejor las causas de los errores de acceso a los recursos compartidos.
+- Conseguir que Guardian genere informes automáticos con los resultados.
+- Preparar una tercera incidencia simulada.
 - Montar Ubuntu Server e instalar Zabbix.
-- Integrar la monitorización de los equipos y servicios del hospital.
+- Configurar la monitorización de los equipos y servicios del laboratorio.
+- Integrar las comprobaciones de Guardian con la monitorización.
 - Continuar documentando los avances en GitHub y en la memoria del TFG.
