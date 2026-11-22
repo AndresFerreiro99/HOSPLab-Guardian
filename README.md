@@ -404,16 +404,168 @@ También he comprobado que Guardian puede ayudar a localizar una incidencia cuan
 
 He guardado las capturas del funcionamiento normal, la incidencia y la recuperación en `docs/capturas`.
 
-El código actualizado de Guardian v1.2 se encuentra en `scripts/Guardian.ps1`.
+El código actualizado de Guardian v1.2 se encuentra en el historial de cambios de `scripts/Guardian.ps1`.
 
-### Próximos pasos
+### Guardian v1.3: generación automática de informes
+
+Después de terminar la segunda incidencia, he continuado mejorando Guardian para que no se limite a mostrar los resultados en PowerShell.
+
+Quería que la herramienta también guardase un informe automáticamente después de cada diagnóstico.
+
+La idea es que un técnico pueda ejecutar Guardian cuando tenga una incidencia y conservar un archivo con las comprobaciones realizadas, sin tener que copiar los resultados manualmente.
+
+Para hacerlo he creado una carpeta llamada `Informes` dentro de Documentos del usuario que ejecuta Guardian.
+
+Actualmente utilizo el usuario `andresferreiro` desde W11-CL01, que simula el ordenador de un técnico informático.
+
+He decidido guardar los informes en el equipo cliente porque, si el servidor deja de funcionar, Guardian debe seguir pudiendo generar las evidencias del problema.
+
+En esta nueva versión, Guardian v1.3, cada vez que ejecuto el script se genera automáticamente un archivo de texto con la fecha y la hora.
+
+Por ejemplo:
+
+```text
+Documentos
+├── Guardian.ps1
+└── Informes
+    └── Guardian_2026-11-22_21-34-28.txt
+```
+
+El informe contiene:
+
+- Fecha y hora del diagnóstico.
+- Nombre del equipo desde el que se ejecuta.
+- Usuario que realiza las comprobaciones.
+- Servidor analizado.
+- Recurso compartido comprobado.
+- Resultado de cada prueba.
+- Resumen final de comprobaciones correctas, advertencias y errores.
+
+De esta manera puedo conservar los resultados de diferentes ejecuciones y comparar lo que ocurría antes y después de solucionar una incidencia.
+
+El código actualizado se encuentra en `scripts/Guardian.ps1`.
+
+### Problema con los permisos de consulta de servicios
+
+Durante las primeras pruebas de Guardian v1.3 apareció un problema que no tenía en las versiones anteriores.
+
+Cuando ejecutaba el script con mi usuario `andresferreiro`, Guardian mostraba errores al comprobar los servicios DNS, NTDS y Netlogon.
+
+Al principio parecía que los servicios no estaban funcionando, pero comprobé directamente desde SRV-AD01 que los tres estaban en ejecución.
+
+Después ejecuté varias pruebas desde Windows 11 para localizar el problema.
+
+Primero intenté consultar los servicios de forma remota mediante Get-Service y comprobé que no podía obtener sus estados correctamente.
+
+También utilicé `sc.exe` para consultar el servicio DNS del servidor y recibí el mensaje de acceso denegado.
+
+Finalmente probé con `Get-CimInstance`, pero también devolvía un error de permisos.
+
+Con estas pruebas confirmé que el problema no estaba en los servicios, sino en que mi usuario no tenía autorización para consultarlos remotamente.
+
+En lugar de convertir mi usuario en administrador del dominio, decidí mantener separados los permisos de administración de ficheros y los permisos del servidor.
+
+Para solucionarlo modifiqué Guardian para que diferenciase tres situaciones:
+
+- OK: la comprobación se ha realizado correctamente.
+- ERROR: se ha podido confirmar un fallo.
+- SIN PERMISOS: el usuario no tiene autorización suficiente para realizar la comprobación.
+
+También se pueden mostrar alertas cuando hay un resultado inesperado que necesita revisión.
+
+Después de modificar el script, los servicios DNS, NTDS y Netlogon dejaron de aparecer como errores y pasaron a mostrarse con el aviso SIN PERMISOS.
+
+Esto me parece importante porque, si una herramienta no puede consultar un servicio, no debería indicar directamente que está detenido.
+
+Al ejecutar nuevamente Guardian v1.3 obtuve cuatro comprobaciones correctas, tres advertencias por falta de permisos y ningún error.
+
+Además, comprobé que estas advertencias también quedaban registradas en el informe automático.
+
+He guardado capturas tanto de la ejecución como del archivo TXT generado.
+
+### Tercera incidencia simulada: registro DNS incorrecto
+
+Una vez que Guardian podía generar informes, decidí preparar una tercera incidencia para comprobar que también registraba los problemas detectados.
+
+En este caso quería simular una resolución DNS incorrecta.
+
+Antes de modificar nada, comprobé desde SRV-AD01 que el nombre `SRV-AD01.hosplab.local` resolvía únicamente a la dirección `10.10.10.10`.
+
+Después añadí temporalmente un segundo registro DNS de tipo A con la dirección `10.10.10.99`.
+
+La configuración quedó de esta manera:
+
+- 10.10.10.10: dirección correcta del servidor.
+- 10.10.10.99: dirección incorrecta añadida para simular la incidencia.
+
+No cambié la dirección IP real de SRV-AD01, solamente añadí un registro DNS de prueba.
+
+#### Detección de la incidencia
+
+Después de añadir el registro incorrecto, ejecuté Guardian v1.3 desde W11-CL01.
+
+La herramienta detectó que el DNS estaba devolviendo dos direcciones IP cuando solamente debería aparecer `10.10.10.10`.
+
+Guardian mostró una alerta indicando que había encontrado registros DNS inesperados.
+
+Mientras tanto, el servidor seguía respondiendo correctamente y el recurso compartido Hospital continuaba disponible.
+
+También aparecían las tres advertencias habituales por falta de permisos para consultar los servicios del dominio.
+
+Cuando terminó el diagnóstico, Guardian generó automáticamente un nuevo informe de texto.
+
+Abrí el archivo y comprobé que la incidencia DNS también había quedado registrada.
+
+De esta manera pude demostrar que Guardian no solamente muestra el problema en pantalla, sino que también guarda una evidencia con la fecha, el equipo y los resultados.
+
+#### Recuperación del DNS
+
+Después de guardar las capturas de la incidencia, volví a comprobar los registros DNS en SRV-AD01.
+
+Al intentar eliminar el registro de prueba, PowerShell indicó que no encontraba el registro especificado.
+
+Consulté nuevamente los registros y comprobé que solamente aparecía la dirección correcta `10.10.10.10`, por lo que no fue necesario realizar más cambios.
+
+A continuación volví a ejecutar Guardian desde Windows 11.
+
+Esta vez la comprobación DNS apareció correctamente y el script generó otro informe con el resultado de la recuperación.
+
+Con esta prueba he podido comprobar que Guardian detecta una configuración DNS incorrecta y permite verificar que vuelve a funcionar correctamente.
+
+Además, al guardar un informe de cada ejecución puedo conservar tanto el diagnóstico de la incidencia como el de su recuperación.
+
+### Estado actual de Guardian
+
+Actualmente he desarrollado Guardian hasta la versión 1.3.
+
+La herramienta puede realizar las siguientes comprobaciones:
+
+| Comprobación | Función |
+|---|---|
+| Conectividad | Comprobar si SRV-AD01 responde |
+| DNS | Revisar si el nombre del servidor devuelve la IP correcta |
+| Servicios | Consultar DNS, NTDS y Netlogon, diferenciando problemas de permisos |
+| SMB | Comprobar si el puerto TCP 445 está disponible |
+| Carpeta compartida | Comprobar si el usuario puede acceder al recurso Hospital |
+| Informes | Guardar automáticamente los resultados en un archivo TXT |
+
+Hasta el momento he realizado tres incidencias simuladas:
+
+1. Caída completa del servidor SRV-AD01.
+2. Eliminación temporal del recurso compartido Hospital.
+3. Registro DNS incorrecto en SRV-AD01.
+
+En las tres pruebas he comprobado cómo responde Guardian cuando aparece el problema y qué resultados muestra después de recuperar el funcionamiento normal.
+
+Las capturas de las pruebas están guardadas en `docs/capturas` y el código de Guardian se encuentra en `scripts/Guardian.ps1`.
+
+## Próximos pasos
 
 Lo siguiente que quiero hacer es:
 
-- Mejorar Guardian para identificar mejor las causas de los errores de acceso a los recursos compartidos.
-- Conseguir que Guardian genere informes automáticos con los resultados.
-- Preparar una tercera incidencia simulada.
+- Seguir mejorando Guardian para que los mensajes de diagnóstico sean más claros.
+- Valorar la posibilidad de generar informes en otros formatos, además de TXT.
 - Montar Ubuntu Server e instalar Zabbix.
 - Configurar la monitorización de los equipos y servicios del laboratorio.
-- Integrar las comprobaciones de Guardian con la monitorización.
+- Estudiar cómo relacionar los resultados de Guardian con las alertas de Zabbix.
 - Continuar documentando los avances en GitHub y en la memoria del TFG.
