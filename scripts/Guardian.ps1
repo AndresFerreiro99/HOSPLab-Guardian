@@ -223,3 +223,4 @@ Write-Host '====================================='
 Write-Host '       Diagnostico finalizado'
 Write-Host '====================================='
 Write-Host "Correctos: $Correctos | Alertas: $Alertas | Errores: $Errores"
+
